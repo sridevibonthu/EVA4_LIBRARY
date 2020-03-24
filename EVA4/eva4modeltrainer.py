@@ -67,7 +67,7 @@ class Test:
     self.stats = stats
     self.scheduler = scheduler
 
-  def run(self, is_last_epoch):
+  def run(self):
     self.model.eval()
     with torch.no_grad():
         for data, target in self.dataloader:
