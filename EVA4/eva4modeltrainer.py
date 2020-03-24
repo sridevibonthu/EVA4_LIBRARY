@@ -67,7 +67,7 @@ class Test:
     self.stats = stats
     self.scheduler = scheduler
 
-  def run(self, is_last_epoch):
+  def run(self):
     self.model.eval()
     with torch.no_grad():
         for data, target in self.dataloader:
@@ -81,20 +81,33 @@ class Test:
               self.scheduler.step(loss)
 
             pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
-            is_correct = pred.eq(target.view_as(pred))
-            if is_last_epoch:
-              #print("Last Epoch")
-              misclassified_inds = (is_correct==0).nonzero()[:,0]
-              for mis_ind in misclassified_inds:
-                if len(self.stats.misclassified_images) == 25:
-                  break
-                self.stats.misclassified_images.append({
-                    "target": target[mis_ind].cpu().numpy(),
-                    "pred": pred[mis_ind][0].cpu().numpy(),
-                    "img": data[mis_ind]
-                })
+
             correct = pred.eq(target.view_as(pred)).sum().item()
             self.stats.add_batch_test_stats(loss, correct, len(data))
+          
+class Misclass:
+  def __init__(self, model, dataloader, stats):
+    self.model = model
+    self.dataloader = dataloader
+    self.stats = stats
+
+  def run(self):
+    self.model.eval()
+    with torch.no_grad():
+        for data, target in self.dataloader:
+          if len(self.stats.misclassified_images) == 25:
+            return
+          data, target = data.to(self.model.device), target.to(self.model.device)
+          output = self.model(data)
+          loss = F.nll_loss(output, target, reduction='sum').item()  # sum up batch loss
+          pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+          is_correct = pred.eq(target.view_as(pred))
+          misclassified_inds = (is_correct==0).nonzero()[:,0]
+          for mis_ind in misclassified_inds:
+            if len(self.stats.misclassified_images) == 25:
+               break
+            self.stats.misclassified_images.append({"target": target[mis_ind].cpu().numpy(), "pred": pred[mis_ind][0].cpu().numpy(),"img": data[mis_ind]})
+            
 
 class ModelTrainer:
   def __init__(self, model, optimizer, train_loader, test_loader, statspath, scheduler=None, batch_scheduler=False, L1lambda = 0):
@@ -110,7 +123,7 @@ class ModelTrainer:
     pbar = tqdm_notebook(range(1, epochs+1), desc="Epochs")
     for epoch in pbar:
       self.train.run()
-      self.test.run(is_last_epoch=False)
+      self.test.run()
       lr = self.optimizer.param_groups[0]['lr']
       self.stats.next_epoch(lr)
       pbar.write(self.stats.get_epoch_desc())
@@ -118,5 +131,6 @@ class ModelTrainer:
       if self.scheduler and not self.batch_scheduler and not isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
         self.scheduler.step()
       pbar.write(f"Learning Rate = {lr:0.6f}")
+    self.misclass.run()
     # save stats for later lookup
     self.stats.save()
