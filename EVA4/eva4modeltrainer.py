@@ -110,7 +110,7 @@ class ModelTrainer:
     pbar = tqdm_notebook(range(1, epochs+1), desc="Epochs")
     for epoch in pbar:
       self.train.run()
-      self.test.run()
+      self.test.run(is_last_epoch=False)
       lr = self.optimizer.param_groups[0]['lr']
       self.stats.next_epoch(lr)
       pbar.write(self.stats.get_epoch_desc())
